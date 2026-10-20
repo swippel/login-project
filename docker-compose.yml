@@ -1,0 +1,82 @@
+# =====================================================================
+# Secure Login — Docker Compose
+#
+# Start:  docker compose up -d --build
+# Teste:  http://127.0.0.1:8081
+#
+# Dienste
+#   web   Reverse Proxy (nginx) — einziger von aussen erreichbarer Punkt
+#   app   PHP-FPM mit der Anwendung
+#   db    MariaDB
+#
+# Die Zugangsdaten im Container stammen aus APP_DB_USER und
+# APP_DB_PASSWORD. Sie sind bewusst getrennt von den lokalen Werten in
+# DB_USER und DB_PASSWORD, damit dieselbe .env-Datei fuer beide
+# Betriebsarten taugt.
+# =====================================================================
+
+name: secure-login
+
+services:
+  web:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8081}:80"
+    volumes:
+      # Statische Dateien direkt ausliefern
+      - ./public:/var/www/html/public:ro
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - app
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Verbindung zum Datenbankdienst im internen Netz
+      DB_HOST: db
+      DB_NAME: auth_system
+      DB_USER: "${APP_DB_USER:-app}"
+      DB_PASSWORD: "${APP_DB_PASSWORD:-app}"
+      APP_URL: "${APP_URL:-http://127.0.0.1:8081}"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app
+
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: "${DB_ROOT_PASSWORD:-root}"
+      MARIADB_DATABASE: auth_system
+      MARIADB_USER: "${APP_DB_USER:-app}"
+      MARIADB_PASSWORD: "${APP_DB_PASSWORD:-app}"
+    volumes:
+      - db_data:/var/lib/mysql
+      # Schema wird beim ersten Start des Containers automatisch eingelesen
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - app
+
+networks:
+  app:
+    driver: bridge
+
+volumes:
+  db_data:

@@ -1,0 +1,17 @@
+{% extends 'layout.twig' %}
+
+{% block content %}
+    <p class="intro">Gib den sechsstelligen Code aus deiner Authenticator-App ein.</p>
+
+    <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <label for="code">Authenticator-Code</label>
+        <input id="code" name="code" type="text" inputmode="numeric" pattern="[0-9]{6}"
+               maxlength="6" autocomplete="one-time-code" required autofocus>
+
+        <button type="submit">Bestaetigen</button>
+    </form>
+
+    <p class="footer-link"><a href="/login.php">Zurueck zum Login</a></p>
+{% endblock %}

@@ -1,0 +1,258 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use SecureLogin\Application;
+use SecureLogin\Database;
+
+require_once dirname(__DIR__) . '/vendor/autoload.php';
+
+/**
+ * Kommandozeile fuer Verwaltungsaufgaben.
+ *
+ * Aufruf:  php bin/console <befehl> [argumente]
+ */
+$rootDirectory = dirname(__DIR__);
+$app = Application::create($rootDirectory);
+
+$command = $argv[1] ?? 'help';
+$arguments = array_slice($argv, 2);
+
+$commands = [
+    'user:list'        => 'Listet alle Konten auf.',
+    'user:create'      => 'user:create <email> [passwort] — legt ein Konto an.',
+    'user:email-code'  => 'user:email-code <email> <on|off> — Bestaetigung per E-Mail umschalten.',
+    'user:totp-off'    => 'user:totp-off <email> — entfernt die 2FA eines Kontos.',
+    'schema:import'    => 'schema:import — legt die Datenbank und alle Tabellen an.',
+    'migrate'          => 'migrate — spielt die Migrationen in database/migrations aus.',
+];
+
+if ($command === 'help' || $command === '--help' || $command === '-h') {
+    echo "Secure Login — Kommandozeile\n\n";
+    echo "Verfuegbare Befehle:\n";
+
+    foreach ($commands as $name => $description) {
+        printf("  %-18s %s\n", $name, $description);
+    }
+
+    exit(0);
+}
+
+if (!isset($commands[$command])) {
+    fwrite(STDERR, sprintf("Unbekannter Befehl: %s\n", $command));
+    exit(1);
+}
+
+try {
+    exit(match ($command) {
+        'user:list'       => commandUserList($app),
+        'user:create'     => commandUserCreate($app, $arguments),
+        'user:email-code' => commandUserEmailCode($app, $arguments),
+        'user:totp-off'   => commandUserTotpOff($app, $arguments),
+        'schema:import'   => commandSchemaImport($rootDirectory),
+        'migrate'         => commandMigrate($rootDirectory),
+        default           => 1,
+    });
+} catch (Throwable $exception) {
+    fwrite(STDERR, 'Fehler: ' . $exception->getMessage() . PHP_EOL);
+    exit(1);
+}
+
+/**
+ * @param list<string> $arguments
+ */
+function commandUserList(Application $app): int
+{
+    $users = $app->users->all();
+
+    if ($users === []) {
+        echo "Keine Konten vorhanden.\n";
+
+        return 0;
+    }
+
+    printf("%-4s %-34s %-8s %-8s %s\n", 'ID', 'E-MAIL', 'MAILCODE', '2FA', 'LETZTER LOGIN');
+
+    foreach ($users as $user) {
+        printf(
+            "%-4d %-34s %-8s %-8s %s\n",
+            $user['id'],
+            $user['email'],
+            (int) $user['email_code_login'] === 1 ? 'ja' : 'nein',
+            $app->twoFactor->isEnabled((int) $user['id']) ? 'ja' : 'nein',
+            $user['last_login'] ?? '-',
+        );
+    }
+
+    return 0;
+}
+
+/**
+ * @param list<string> $arguments
+ */
+function commandUserCreate(Application $app, array $arguments): int
+{
+    $email = mb_strtolower(trim($arguments[0] ?? ''));
+    $password = $arguments[1] ?? '';
+
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        fwrite(STDERR, "Bitte eine gueltige E-Mail-Adresse angeben.\n");
+
+        return 1;
+    }
+
+    if ($password === '') {
+        $password = bin2hex(random_bytes(12));
+        echo "Generiertes Passwort: $password\n";
+    }
+
+    if (strlen($password) < 12) {
+        fwrite(STDERR, "Das Passwort muss mindestens 12 Zeichen lang sein.\n");
+
+        return 1;
+    }
+
+    if ($app->users->exists($email)) {
+        fwrite(STDERR, "Diese E-Mail-Adresse ist bereits registriert.\n");
+
+        return 1;
+    }
+
+    $userId = $app->users->create($email, $app->security->hashPassword($password));
+
+    echo sprintf("Konto angelegt: %s (ID %d)\n", $email, $userId);
+
+    return 0;
+}
+
+/**
+ * @param list<string> $arguments
+ */
+function commandUserEmailCode(Application $app, array $arguments): int
+{
+    $email = mb_strtolower(trim($arguments[0] ?? ''));
+    $state = strtolower($arguments[1] ?? '');
+
+    $user = $app->users->findByEmail($email);
+
+    if ($user === null) {
+        fwrite(STDERR, "Konto nicht gefunden.\n");
+
+        return 1;
+    }
+
+    if (!in_array($state, ['on', 'off'], true)) {
+        fwrite(STDERR, "Zweiter Wert muss 'on' oder 'off' sein.\n");
+
+        return 1;
+    }
+
+    $enabled = $state === 'on';
+    $app->users->setEmailCodeLogin((int) $user['id'], $enabled);
+
+    echo sprintf("Bestaetigung per E-Mail fuer %s: %s\n", $email, $enabled ? 'aktiv' : 'inaktiv');
+
+    return 0;
+}
+
+/**
+ * @param list<string> $arguments
+ */
+function commandUserTotpOff(Application $app, array $arguments): int
+{
+    $email = mb_strtolower(trim($arguments[0] ?? ''));
+    $user = $app->users->findByEmail($email);
+
+    if ($user === null) {
+        fwrite(STDERR, "Konto nicht gefunden.\n");
+
+        return 1;
+    }
+
+    $app->securityRepository->deleteTotp((int) $user['id']);
+
+    echo sprintf("2FA fuer %s entfernt.\n", $email);
+
+    return 0;
+}
+
+function commandSchemaImport(string $rootDirectory): int
+{
+    $path = $rootDirectory . '/database/schema.sql';
+
+    if (!is_file($path)) {
+        fwrite(STDERR, 'Schema-Datei nicht gefunden: ' . $path . "\n");
+
+        return 1;
+    }
+
+    $sql = file_get_contents($path);
+
+    if ($sql === false) {
+        fwrite(STDERR, "Schema-Datei konnte nicht gelesen werden.\n");
+
+        return 1;
+    }
+
+    $pdo = new PDO(
+        sprintf(
+            'mysql:host=%s;charset=utf8mb4',
+            getenv('DB_HOST') ?: '127.0.0.1',
+        ),
+        getenv('DB_USER') ?: 'root',
+        getenv('DB_PASSWORD') ?: '',
+    );
+
+    foreach (array_filter(array_map('trim', explode(';', $sql))) as $statement) {
+        if ($statement === '' || str_starts_with($statement, '--')) {
+            continue;
+        }
+
+        $pdo->exec($statement);
+    }
+
+    echo "Schema eingelesen.\n";
+
+    return 0;
+}
+
+function commandMigrate(string $rootDirectory): int
+{
+    $directory = $rootDirectory . '/database/migrations';
+
+    if (!is_dir($directory)) {
+        fwrite(STDERR, "Keine Migrationen gefunden.\n");
+
+        return 1;
+    }
+
+    $pdo = new PDO(
+        sprintf(
+            'mysql:host=%s;dbname=%s;charset=utf8mb4',
+            getenv('DB_HOST') ?: '127.0.0.1',
+            getenv('DB_NAME') ?: 'auth_system',
+        ),
+        getenv('DB_USER') ?: 'root',
+        getenv('DB_PASSWORD') ?: '',
+    );
+
+    $files = glob($directory . '/*.sql') ?: [];
+    sort($files);
+
+    foreach ($files as $file) {
+        $sql = (string) file_get_contents($file);
+
+        foreach (array_filter(array_map('trim', explode(';', $sql))) as $statement) {
+            if ($statement === '' || str_starts_with($statement, '--')) {
+                continue;
+            }
+
+            $pdo->exec($statement);
+        }
+
+        echo 'Migration ausgefuehrt: ' . basename($file) . "\n";
+    }
+
+    return 0;
+}

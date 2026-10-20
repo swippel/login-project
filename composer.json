@@ -1,0 +1,29 @@
+{
+    "name": "tgm/secure-login",
+    "description": "Sicheres Login-Portal mit PHP 8.2, MariaDB, Zwei-Faktor-Authentifizierung und Docker-Deployment",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.2",
+        "ext-curl": "*",
+        "ext-json": "*",
+        "ext-mbstring": "*",
+        "ext-pdo": "*",
+        "ext-pdo_mysql": "*",
+        "ext-sodium": "*",
+        "twig/twig": "^3.21"
+    },
+    "autoload": {
+        "psr-4": {
+            "SecureLogin\\": "src/"
+        }
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
+    },
+    "scripts": {
+        "serve": "php -S 127.0.0.1:8081 -t public",
+        "lint": "find src public templates bin -name '*.php' -print0 | xargs -0 -n1 php -l"
+    }
+}

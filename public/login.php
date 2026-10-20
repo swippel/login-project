@@ -1,47 +1,52 @@
 <?php
-require_once dirname(__DIR__) . '/src/app.php';
-require_once dirname(__DIR__) . '/src/totp.php';
-if (user_id()) redirect('/account.php');
+
+declare(strict_types=1);
+
+use SecureLogin\Application;
+
+/** @var Application $app */
+$app = require dirname(__DIR__) . '/src/bootstrap.php';
+
+if ($app->auth->userId() !== null) {
+    $app->http->redirect('/account.php');
+}
+
 $error = '';
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    check_csrf();
-    $email = mb_strtolower(trim((string)($_POST['email'] ?? '')));
-    $password = (string)($_POST['password'] ?? '');
-    if (!rate_allowed('login', $_SERVER['REMOTE_ADDR'] ?? 'unknown', 20, 900)) $error = 'Zu viele Versuche. Bitte versuche es in 15 Minuten erneut.';
-    else {
-        $stmt = db()->prepare('SELECT id, email, password_hash FROM users WHERE email = ?');
-        $stmt->execute([$email]);
-        $user = $stmt->fetch();
-        if (!$user || !password_matches($password, $user['password_hash'])) {
+$email = '';
+
+if ($app->http->isPost()) {
+    $app->http->requireValidCsrfToken();
+
+    $email = mb_strtolower(trim($app->http->input('email')));
+    $password = $app->http->input('password');
+
+    if (!$app->security->allowAttempts('login', $app->http->clientIp(), 20, 900)) {
+        $error = 'Zu viele Versuche. Bitte versuche es in 15 Minuten erneut.';
+    } else {
+        $user = $app->users->findByEmail($email);
+        $valid = $user !== null
+            && $app->security->verifyPassword($password, (string) $user['password_hash']);
+
+        if (!$valid) {
             $error = 'E-Mail oder Passwort ist falsch.';
         } else {
-            if (!str_starts_with($user['password_hash'], 'v2:') || password_needs_rehash(substr($user['password_hash'], 3), PASSWORD_DEFAULT)) {
-                db()->prepare('UPDATE users SET password_hash = ? WHERE id = ?')->execute([hash_password($password), $user['id']]);
-            }
-            if (totp_row((int)$user['id'])) {
-                session_regenerate_id(true);
-                $_SESSION['pending_2fa'] = (int)$user['id'];
-                $_SESSION['pending_2fa_time'] = time();
-                $_SESSION['twofa_failures'] = 0;
-                redirect('/verify-2fa.php');
-            }
-            finish_login($user);
-            redirect('/account.php');
+            $app->auth->upgradePasswordHash($user, $password);
+
+            $app->http->redirect($app->auth->startLogin($user));
         }
     }
 }
-page_start('Willkommen zurück');
-if ($error) message($error);
-if (isset($_GET['registered'])) message('Konto erstellt. Du kannst dich jetzt anmelden.', 'success');
-if (isset($_GET['reset'])) message('Passwort geändert. Bitte melde dich an.', 'success');
-?>
-<p class="intro">Melde dich mit deinem Konto an.</p>
-<form method="post">
-    <?php csrf_field(); ?>
-    <label for="email">E-Mail</label><input id="email" name="email" type="email" autocomplete="username" value="<?= e($email ?? '') ?>" required>
-    <label for="password">Passwort</label><input id="password" name="password" type="password" autocomplete="current-password" required>
-    <p class="right-link"><a href="/forgot-password.php">Passwort vergessen?</a></p>
-    <button type="submit">Einloggen</button>
-</form>
-<p class="footer-link">Noch kein Konto? <a href="/register.php">Registrieren</a></p>
-<?php page_end(); ?>
+
+if (isset($_GET['registered'])) {
+    $app->session->flash('success', 'Konto erstellt. Du kannst dich jetzt anmelden.');
+}
+
+if (isset($_GET['reset'])) {
+    $app->session->flash('success', 'Passwort geaendert. Bitte melde dich an.');
+}
+
+echo $app->view->render('login.twig', [
+    'title' => 'Willkommen zurueck',
+    'error' => $error,
+    'email' => $email,
+]);

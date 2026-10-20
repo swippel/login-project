@@ -1,2 +1,13 @@
+# Abhaengigkeiten und Cache
+/vendor/
+/var/
+
+# Konfiguration mit Geheimnissen
 .env
+
+# Lokale Werkzeuge
+composer.phar
+
+# Betriebssystem
 .DS_Store
+Thumbs.db

@@ -1,0 +1,17 @@
+# Abhaengigkeiten werden im Image installiert
+/vendor
+
+# Cache und Logs
+/var
+
+# Konfiguration mit Geheimnissen
+.env
+
+# Versionsverwaltung
+.git
+.gitignore
+
+# Dokumentation und lokale Werkzeuge
+*.md
+!README.md
+composer.phar
