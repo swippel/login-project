@@ -1,55 +1,23 @@
-# syntax=docker/dockerfile:1
+FROM composer:2 AS vendor
+WORKDIR /app
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --no-interaction --no-scripts --optimize-autoloader --ignore-platform-reqs
 
-# =====================================================================
-# Secure Login — Produktions-Image
-#
-# Enthaelt PHP-FPM, die benoetigten Erweiterungen und die Abhaengigkeiten
-# aus composer. Der Webserver nginx liegt als eigener Container vor und
-# spricht ueber das interne Netzwerk mit diesem Dienst.
-# =====================================================================
+FROM php:8.3-apache
 
-FROM php:8.3-fpm-alpine
+# pdo_mysql für die Datenbank; sodium, curl und mbstring bringt das Image mit
+RUN docker-php-ext-install pdo_mysql opcache \
+    && sed -ri 's!/var/www/html!/var/www/html/public!g' /etc/apache2/sites-available/000-default.conf
 
-# --- PHP-Erweiterungen ------------------------------------------------
-# pdo_mysql  : Datenbankzugriff
-# mbstring   : Unicode-Funktionen fuer E-Mail-Adressen
-# opcache    : Bytecode-Cache
-RUN apk add --no-cache --virtual .build-deps $PHPIZE_DEPS oniguruma-dev \
-    && docker-php-ext-install -j"$(nproc)" pdo_mysql mbstring opcache \
-    && apk del .build-deps \
-    && docker-php-ext-enable opcache
-
-# --- Konfiguration ----------------------------------------------------
 COPY docker/php/php.ini /usr/local/etc/php/conf.d/app.ini
 
 WORKDIR /var/www/html
-
-# --- Abhaengigkeiten --------------------------------------------------
-# composer.json und composer.lock werden zuerst kopiert, damit die
-# Installation bei unveraenderter Datei aus dem Cache kommt.
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
-COPY composer.json composer.lock ./
-RUN composer install \
-        --no-dev \
-        --no-interaction \
-        --no-scripts \
-        --prefer-dist \
-        --optimize-autoloader
-
-# --- Anwendungscode ---------------------------------------------------
+COPY --from=vendor /app/vendor ./vendor
 COPY src/ ./src/
 COPY templates/ ./templates/
 COPY public/ ./public/
 COPY bin/ ./bin/
 
-RUN mkdir -p var/cache/twig \
-    && chown -R www-data:www-data /var/www/html
+RUN mkdir -p var/cache/twig && chown -R www-data:www-data var
 
-USER www-data
-
-EXPOSE 9000
-
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD php -r '$s = @fsockopen("127.0.0.1", 9000); exit($s ? 0 : 1);'
-
-CMD ["php-fpm", "-F"]
+EXPOSE 80

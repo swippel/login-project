@@ -111,8 +111,8 @@ Versionsverwaltung. Die Vorlage `.env.example` listet alle verfügbaren Werte mi
 
 ```
 secure-login/
-├── docker-compose.yml      Dienste: web (nginx), app (PHP-FPM), db (MariaDB)
-├── Dockerfile              PHP-FPM-Image
+├── docker-compose.yml      Dienste: app (Apache + PHP), db (MariaDB)
+├── Dockerfile              PHP-Image mit Apache
 ├── database/schema.sql     Datenbankschema (wird beim ersten Start eingelesen)
 ├── bin/console             Kommandozeile für Verwaltungsaufgaben
 ├── public/                 Dokument-Root, ein Controller je Seite
