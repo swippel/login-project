@@ -5,7 +5,7 @@ RUN composer install --no-dev --no-interaction --no-scripts --optimize-autoloade
 
 FROM php:8.3-apache
 
-# pdo_mysql für die Datenbank; sodium, curl und mbstring bringt das Image mit
+# pdo_mysql für die Datenbank; sodium und mbstring bringt das Image mit
 RUN docker-php-ext-install pdo_mysql opcache \
     && sed -ri 's!/var/www/html!/var/www/html/public!g' /etc/apache2/sites-available/000-default.conf
 

@@ -69,7 +69,7 @@ docker compose down -v          # Stack beenden und Datenbank löschen
 
 ## Installation ohne Docker
 
-Voraussetzungen: PHP 8.2 oder neuer mit den Erweiterungen `pdo_mysql`, `sodium`, `curl`, `mbstring`
+Voraussetzungen: PHP 8.2 oder neuer mit den Erweiterungen `pdo_mysql`, `sodium`, `mbstring`
 und `json` sowie eine MariaDB-Datenbank.
 
 ```bash
@@ -98,14 +98,25 @@ Versionsverwaltung. Die Vorlage `.env.example` listet alle verfügbaren Werte mi
 |---|---|
 | `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Zugang zur Datenbank |
 | `APP_URL` | Adresse unter der das Projekt erreichbar ist; wird für Reset-Links verwendet |
-| `RESEND_API_KEY` | API-Schlüssel des E-Mail-Dienstes |
-| `RESEND_FROM` | Absenderadresse einer verifizierten Domain |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE` | SMTP-Server (Standard `smtp.resend.com`, Port `587`, `starttls`; alternativ `ssl` für Port 465) |
+| `SMTP_USER`, `SMTP_PASSWORD` | Zugangsdaten; bei Resend `resend` und der API-Key |
+| `SMTP_FROM` | Absenderadresse, leer = `SMTP_USER` |
 | `APP_KEY` | 32 zufällige Bytes, Base64-kodiert; schützt die 2FA-Geheimnisse |
 | `WEB_PORT` | Port des Webservers im Container |
 | `APP_DB_USER`, `APP_DB_PASSWORD` | Zugangsdaten der Datenbank **im Container** |
 
 > **Wichtig:** Der `APP_KEY` darf nach dem ersten Start nicht mehr geändert werden. Sonst lassen
 > sich die gespeicherten 2FA-Geheimnisse nicht mehr entschlüsseln.
+
+### E-Mail-Versand einrichten (Resend)
+
+1. Bei [resend.com](https://resend.com) einen API-Key erzeugen (beginnt mit `re_`) und die Absender-Domain verifizieren.
+2. In der `.env` eintragen: `SMTP_PASSWORD=<API-Key>` und `SMTP_FROM=<Adresse der verifizierten Domain>`.
+   `SMTP_USER` bleibt `resend`, `SMTP_HOST` ist `smtp.resend.com`. Jeder andere SMTP-Server (z. B. Gmail) geht genauso.
+3. Container neu erstellen: `docker compose up -d --force-recreate app`.
+
+Ohne `SMTP_PASSWORD` läuft der **Entwicklungsmodus**: Es wird keine Mail verschickt,
+stattdessen erscheinen Code oder Reset-Link in der Seite und im Log (`docker compose logs -f app`).
 
 ## Projektstruktur
 
@@ -129,7 +140,7 @@ secure-login/
 │   ├── Security.php        Passwörter, Verschlüsselung, Eingabeprüfung
 │   ├── RateLimit.php       Versuchsbegrenzung
 │   ├── Users.php           Tabelle users
-│   ├── Mailer.php          E-Mail-Versand über Resend
+│   ├── Mailer.php          E-Mail-Versand über SMTP
 │   ├── Config.php          .env und Umgebungsvariablen
 │   └── Database.php        PDO mit Prepared Statements
 ├── templates/              Twig-Templates (HTML), E-Mail-Vorlagen in emails/

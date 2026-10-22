@@ -5,12 +5,12 @@
     "license": "MIT",
     "require": {
         "php": ">=8.2",
-        "ext-curl": "*",
         "ext-json": "*",
         "ext-mbstring": "*",
         "ext-pdo": "*",
         "ext-pdo_mysql": "*",
         "ext-sodium": "*",
+        "phpmailer/phpmailer": "^6.9",
         "twig/twig": "^3.21"
     },
     "autoload": {

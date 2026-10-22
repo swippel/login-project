@@ -4,8 +4,14 @@ declare(strict_types=1);
 
 namespace SecureLogin;
 
+use PHPMailer\PHPMailer\Exception as MailException;
+use PHPMailer\PHPMailer\PHPMailer;
+
 /**
- * Versendet E-Mails über die Resend-API.
+ * Versendet E-Mails über einen SMTP-Server (z. B. Gmail).
+ *
+ * Ohne SMTP-Zugang läuft die Anwendung im Entwicklungsmodus: Es wird nichts
+ * verschickt, Codes und Links erscheinen stattdessen in der Seite und im Log.
  */
 final class Mailer
 {
@@ -15,7 +21,9 @@ final class Mailer
 
     public function isConfigured(): bool
     {
-        return $this->config->get('RESEND_API_KEY') !== '' && $this->config->get('RESEND_FROM') !== '';
+        return $this->config->get('SMTP_HOST') !== ''
+            && $this->config->get('SMTP_USER') !== ''
+            && $this->config->get('SMTP_PASSWORD') !== '';
     }
 
     public function sendCode(string $to, string $code, int $minutes): bool
@@ -44,39 +52,42 @@ final class Mailer
     private function send(string $to, string $subject, string $template, array $data, string $text): bool
     {
         if (!$this->isConfigured()) {
-            error_log('E-Mail-Versand nicht konfiguriert: RESEND_API_KEY oder RESEND_FROM fehlt.');
+            error_log("[Entwicklungsmodus] Mail an $to: $text");
+            $this->web->flash('success', "Entwicklungsmodus (kein Mailversand eingerichtet): $text");
+
+            return true;
+        }
+
+        $port = (int) $this->config->get('SMTP_PORT', '587');
+        $user = $this->config->get('SMTP_USER');
+
+        try {
+            $mail = new PHPMailer(true);
+            $mail->isSMTP();
+            $mail->Host = $this->config->get('SMTP_HOST');
+            $mail->Port = $port;
+            $mail->SMTPAuth = true;
+            $mail->Username = $user;
+            $mail->Password = $this->config->get('SMTP_PASSWORD');
+            $secure = $this->config->get('SMTP_SECURE', 'starttls');
+            $mail->SMTPSecure = ['ssl' => PHPMailer::ENCRYPTION_SMTPS, 'none' => ''][$secure] ?? PHPMailer::ENCRYPTION_STARTTLS;
+            $mail->SMTPAutoTLS = $secure !== 'none';
+            $mail->Timeout = 12;
+            $mail->CharSet = 'UTF-8';
+
+            $mail->setFrom($this->config->get('SMTP_FROM', $user), 'Secure Login');
+            $mail->addAddress($to);
+            $mail->Subject = $subject;
+            $mail->isHTML();
+            $mail->Body = $this->web->render($template, $data);
+            $mail->AltBody = $text;
+            $mail->send();
+
+            return true;
+        } catch (MailException $error) {
+            error_log('E-Mail-Versand fehlgeschlagen: ' . $error->getMessage());
 
             return false;
         }
-
-        $curl = curl_init('https://api.resend.com/emails');
-        curl_setopt_array($curl, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => json_encode([
-                'from' => $this->config->get('RESEND_FROM'),
-                'to' => [$to],
-                'subject' => $subject,
-                'html' => $this->web->render($template, $data),
-                'text' => $text,
-            ], JSON_THROW_ON_ERROR),
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPHEADER => [
-                'Authorization: Bearer ' . $this->config->get('RESEND_API_KEY'),
-                'Content-Type: application/json',
-            ],
-            CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => 12,
-        ]);
-
-        $response = curl_exec($curl);
-        $status = curl_getinfo($curl, CURLINFO_HTTP_CODE);
-
-        if ($status < 200 || $status >= 300) {
-            error_log(sprintf('E-Mail-Versand fehlgeschlagen (HTTP %d): %s', $status, substr((string) $response, 0, 500)));
-
-            return false;
-        }
-
-        return true;
     }
 }

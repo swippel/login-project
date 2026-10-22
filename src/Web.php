@@ -72,6 +72,10 @@ final class Web
     /** @param array<string, mixed> $data */
     public function render(string $template, array $data = []): string
     {
+        if (str_starts_with($template, 'emails/')) {
+            return $this->twig->render($template, $data);
+        }
+
         // Erst beim Rendern lesen, damit auch Meldungen aus dem aktuellen Aufruf erscheinen.
         $flash = ['success' => $this->takeFlash('success'), 'error' => $this->takeFlash('error')];
 
