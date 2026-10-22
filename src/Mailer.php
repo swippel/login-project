@@ -5,23 +5,43 @@ declare(strict_types=1);
 namespace SecureLogin;
 
 /**
- * Versendet E-Mails ueber die Resend-API.
+ * Versendet E-Mails über die Resend-API.
  */
 final class Mailer
 {
-    private const ENDPOINT = 'https://api.resend.com/emails';
-
-    public function __construct(private readonly Config $config)
+    public function __construct(private readonly Config $config, private readonly Web $web)
     {
     }
 
     public function isConfigured(): bool
     {
-        return $this->config->get('RESEND_API_KEY') !== null
-            && $this->config->get('RESEND_FROM') !== null;
+        return $this->config->get('RESEND_API_KEY') !== '' && $this->config->get('RESEND_FROM') !== '';
     }
 
-    public function send(string $recipient, string $subject, string $htmlBody, string $textBody): bool
+    public function sendCode(string $to, string $code, int $minutes): bool
+    {
+        return $this->send(
+            $to,
+            'Dein Bestaetigungscode',
+            'emails/verification-code.twig',
+            ['code' => $code, 'minutes' => $minutes],
+            "Dein Bestaetigungscode lautet: $code\nDer Code ist $minutes Minuten gueltig.",
+        );
+    }
+
+    public function sendReset(string $to, string $url, int $minutes): bool
+    {
+        return $this->send(
+            $to,
+            'Passwort zuruecksetzen',
+            'emails/password-reset.twig',
+            ['url' => $url, 'minutes' => $minutes],
+            "Passwort zuruecksetzen: $url\nDer Link ist $minutes Minuten gueltig und kann nur einmal verwendet werden.",
+        );
+    }
+
+    /** @param array<string, mixed> $data */
+    private function send(string $to, string $subject, string $template, array $data, string $text): bool
     {
         if (!$this->isConfigured()) {
             error_log('E-Mail-Versand nicht konfiguriert: RESEND_API_KEY oder RESEND_FROM fehlt.');
@@ -29,18 +49,16 @@ final class Mailer
             return false;
         }
 
-        $payload = json_encode([
-            'from' => $this->config->get('RESEND_FROM'),
-            'to' => [$recipient],
-            'subject' => $subject,
-            'html' => $htmlBody,
-            'text' => $textBody,
-        ], JSON_THROW_ON_ERROR);
-
-        $curl = curl_init(self::ENDPOINT);
+        $curl = curl_init('https://api.resend.com/emails');
         curl_setopt_array($curl, [
             CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => $payload,
+            CURLOPT_POSTFIELDS => json_encode([
+                'from' => $this->config->get('RESEND_FROM'),
+                'to' => [$to],
+                'subject' => $subject,
+                'html' => $this->web->render($template, $data),
+                'text' => $text,
+            ], JSON_THROW_ON_ERROR),
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HTTPHEADER => [
                 'Authorization: Bearer ' . $this->config->get('RESEND_API_KEY'),
@@ -53,12 +71,8 @@ final class Mailer
         $response = curl_exec($curl);
         $status = curl_getinfo($curl, CURLINFO_HTTP_CODE);
 
-        if ($response === false || $status < 200 || $status >= 300) {
-            error_log(sprintf(
-                'E-Mail-Versand fehlgeschlagen (HTTP %d): %s',
-                $status,
-                substr((string) $response, 0, 500),
-            ));
+        if ($status < 200 || $status >= 300) {
+            error_log(sprintf('E-Mail-Versand fehlgeschlagen (HTTP %d): %s', $status, substr((string) $response, 0, 500)));
 
             return false;
         }

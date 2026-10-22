@@ -5,84 +5,36 @@ declare(strict_types=1);
 namespace SecureLogin;
 
 /**
- * Zentrale Verdrahtung aller Bausteine der Anwendung.
- *
- * Die Abhaengigkeiten werden einmalig erzeugt und weitergereicht. Es gibt
- * keine globalen Zustandsvariablen und keinen Service-Locator: Jede Klasse
- * bekommt genau das, was sie braucht.
+ * Baut alle Bausteine einmal zusammen. Die Seiten in public/ holen sich
+ * hier, was sie brauchen.
  */
 final class Application
 {
-    public function __construct(
-        public readonly Config $config,
-        public readonly Database $database,
-        public readonly Session $session,
-        public readonly Http $http,
-        public readonly View $view,
-        public readonly Mailer $mailer,
-        public readonly Security $security,
-        public readonly UserRepository $users,
-        public readonly SecurityRepository $securityRepository,
-        public readonly PasswordService $passwordService,
-        public readonly TwoFactorService $twoFactor,
-        public readonly AuthService $auth,
-    ) {
-    }
+    public readonly Config $config;
+    public readonly Database $database;
+    public readonly Web $web;
+    public readonly Security $security;
+    public readonly RateLimit $rateLimit;
+    public readonly Mailer $mailer;
+    public readonly Users $users;
+    public readonly EmailCodes $emailCodes;
+    public readonly PasswordReset $passwordReset;
+    public readonly TwoFactor $twoFactor;
+    public readonly Auth $auth;
 
-    /**
-     * Erzeugt eine einsatzbereite Anwendung.
-     *
-     * @param string $rootDirectory Wurzelverzeichnis des Projekts
-     */
-    public static function create(string $rootDirectory): self
+    public function __construct(string $root)
     {
-        $config = Config::fromFile($rootDirectory . '/.env');
-        $database = new Database($config);
-        $session = new Session();
-        $view = new View($rootDirectory . '/templates', $rootDirectory . '/var/cache/twig');
+        $this->config = Config::fromFile($root . '/.env');
+        $this->database = new Database($this->config);
 
-        $mailer = new Mailer($config);
-        $security = new Security($config, $database);
-
-        $users = new UserRepository($database);
-        $securityRepository = new SecurityRepository($database);
-
-        $passwordService = new PasswordService(
-            $config,
-            $database,
-            $users,
-            $securityRepository,
-            $security,
-            $mailer,
-            $view,
-            $session,
-        );
-
-        $twoFactor = new TwoFactorService($securityRepository, $security, $session);
-
-        $auth = new AuthService(
-            $database,
-            $session,
-            $users,
-            $securityRepository,
-            $security,
-            $passwordService,
-            $twoFactor,
-        );
-
-        return new self(
-            $config,
-            $database,
-            $session,
-            new Http($session),
-            $view,
-            $mailer,
-            $security,
-            $users,
-            $securityRepository,
-            $passwordService,
-            $twoFactor,
-            $auth,
-        );
+        $this->web = new Web($root);
+        $this->security = new Security($this->config);
+        $this->rateLimit = new RateLimit($this->database);
+        $this->mailer = new Mailer($this->config, $this->web);
+        $this->users = new Users($this->database);
+        $this->emailCodes = new EmailCodes($this->database, $this->security, $this->mailer);
+        $this->passwordReset = new PasswordReset($this->config, $this->database, $this->security, $this->users, $this->mailer);
+        $this->twoFactor = new TwoFactor($this->database, $this->security, $this->web);
+        $this->auth = new Auth($this->database, $this->web, $this->users, $this->emailCodes, $this->twoFactor);
     }
 }

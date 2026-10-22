@@ -39,7 +39,6 @@ RUN composer install \
 # --- Anwendungscode ---------------------------------------------------
 COPY src/ ./src/
 COPY templates/ ./templates/
-COPY database/ ./database/
 COPY public/ ./public/
 COPY bin/ ./bin/
 

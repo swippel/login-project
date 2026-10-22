@@ -8,84 +8,83 @@ use PDO;
 use PDOStatement;
 
 /**
- * Dünne Hülle um PDO mit Hilfsmethoden für die typischen Abfragen.
- *
- * Es wird ausschliesslich mit Prepared Statements gearbeitet. Durch
- * ATTR_EMULATE_PREPARES = false escapt die Datenbank selbst, wodurch
- * SQL-Injection ausgeschlossen ist.
+ * Dünne Hülle um PDO. Alle Abfragen laufen über Prepared Statements.
  */
 final class Database
 {
-    private ?PDO $connection = null;
+    private ?PDO $pdo = null;
 
     public function __construct(private readonly Config $config)
     {
     }
 
-    public function connection(): PDO
+    /** @return array<string, mixed>|null */
+    public function one(string $sql, array $params = []): ?array
     {
-        if ($this->connection instanceof PDO) {
-            return $this->connection;
+        return $this->run($sql, $params)->fetch() ?: null;
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function all(string $sql, array $params = []): array
+    {
+        return $this->run($sql, $params)->fetchAll();
+    }
+
+    public function execute(string $sql, array $params = []): int
+    {
+        return $this->run($sql, $params)->rowCount();
+    }
+
+    public function lastInsertId(): int
+    {
+        return (int) $this->pdo()->lastInsertId();
+    }
+
+    /** Führt $work in einer Transaktion aus und gibt dessen Ergebnis zurück. */
+    public function transaction(callable $work): mixed
+    {
+        $this->pdo()->beginTransaction();
+
+        try {
+            $result = $work();
+            $this->pdo()->commit();
+
+            return $result;
+        } catch (\Throwable $error) {
+            $this->pdo()->rollBack();
+
+            throw $error;
         }
-
-        $dsn = sprintf(
-            'mysql:host=%s;dbname=%s;charset=utf8mb4',
-            $this->config->get('DB_HOST', '127.0.0.1'),
-            $this->config->get('DB_NAME', 'auth_system'),
-        );
-
-        $this->connection = new PDO(
-            $dsn,
-            $this->config->get('DB_USER', 'root'),
-            $this->config->get('DB_PASSWORD', ''),
-            [
-                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                PDO::ATTR_EMULATE_PREPARES => false,
-            ],
-        );
-
-        $this->connection->exec("SET time_zone = '+00:00'");
-
-        return $this->connection;
     }
 
-    /**
-     * @param array<string|int, mixed> $parameters
-     * @return array<string, mixed>|null
-     */
-    public function fetchOne(string $sql, array $parameters = []): ?array
+    private function run(string $sql, array $params): PDOStatement
     {
-        $row = $this->run($sql, $parameters)->fetch();
-
-        return $row === false ? null : $row;
-    }
-
-    /**
-     * @param array<string|int, mixed> $parameters
-     * @return list<array<string, mixed>>
-     */
-    public function fetchAll(string $sql, array $parameters = []): array
-    {
-        return $this->run($sql, $parameters)->fetchAll();
-    }
-
-    /**
-     * @param array<string|int, mixed> $parameters
-     */
-    public function execute(string $sql, array $parameters = []): int
-    {
-        return $this->run($sql, $parameters)->rowCount();
-    }
-
-    /**
-     * @param array<string|int, mixed> $parameters
-     */
-    private function run(string $sql, array $parameters): PDOStatement
-    {
-        $statement = $this->connection()->prepare($sql);
-        $statement->execute($parameters);
+        $statement = $this->pdo()->prepare($sql);
+        $statement->execute($params);
 
         return $statement;
+    }
+
+    private function pdo(): PDO
+    {
+        if ($this->pdo === null) {
+            $this->pdo = new PDO(
+                sprintf(
+                    'mysql:host=%s;dbname=%s;charset=utf8mb4',
+                    $this->config->get('DB_HOST', '127.0.0.1'),
+                    $this->config->get('DB_NAME', 'auth_system'),
+                ),
+                $this->config->get('DB_USER', 'root'),
+                $this->config->get('DB_PASSWORD'),
+                [
+                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                    PDO::ATTR_EMULATE_PREPARES => false,
+                ],
+            );
+            $this->pdo->exec("SET time_zone = '+00:00'");
+        }
+
+        return $this->pdo;
     }
 }

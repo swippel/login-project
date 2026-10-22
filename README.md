@@ -25,7 +25,7 @@ gegen Cross-Site-Request-Forgery geschützt, und wiederholte Anmeldeversuche wer
 | Funktion | Beschreibung |
 |---|---|
 | Registrierung | E-Mail und Passwort ab 12 Zeichen, Dubletten werden abgefangen |
-| Login | Passwortprüfung, Versuchsbegrenzung, automatische Umstellung alter Hash-Verfahren |
+| Login | Passwortprüfung, Versuchsbegrenzung |
 | Bestätigung per E-Mail | Zusätzlicher sechsstelliger Code aus dem Postfach bei der Anmeldung |
 | Zwei-Faktor-Authentifizierung | Einmalcode aus einer Authenticator-App, Replay-Schutz |
 | Passwort vergessen | Einmal-Link per E-Mail, 30 Minuten gültig |
@@ -89,12 +89,6 @@ php -S 127.0.0.1:8081 -t public
 
 Danach ist das Projekt unter <http://127.0.0.1:8081> erreichbar.
 
-**Bestehende Installationen aktualisieren:** Die Migrationen liegen in `database/migrations/`.
-
-```bash
-mariadb -u root auth_system < database/migrations/001_email_verification.sql
-```
-
 ## Konfiguration
 
 Die Datei `.env` enthält alle Einstellungen. Sie steht in der `.gitignore` und gehört nie in die
@@ -104,7 +98,6 @@ Versionsverwaltung. Die Vorlage `.env.example` listet alle verfügbaren Werte mi
 |---|---|
 | `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Zugang zur Datenbank |
 | `APP_URL` | Adresse unter der das Projekt erreichbar ist; wird für Reset-Links verwendet |
-| `EMAIL_CODE_ENABLED` | `1` = Bestätigung per E-Mail ist verfügbar |
 | `RESEND_API_KEY` | API-Schlüssel des E-Mail-Dienstes |
 | `RESEND_FROM` | Absenderadresse einer verifizierten Domain |
 | `APP_KEY` | 32 zufällige Bytes, Base64-kodiert; schützt die 2FA-Geheimnisse |
@@ -118,38 +111,29 @@ Versionsverwaltung. Die Vorlage `.env.example` listet alle verfügbaren Werte mi
 
 ```
 secure-login/
-├── composer.json           Abhaengigkeiten und PSR-4-Autoloading
-├── docker-compose.yml      Dienste: web, app, db
+├── docker-compose.yml      Dienste: web (nginx), app (PHP-FPM), db (MariaDB)
 ├── Dockerfile              PHP-FPM-Image
-├── database/
-│   ├── schema.sql          Datenbankschema für Neuinstallationen
-│   └── migrations/         Migrationen für bestehende Installationen
-├── docker/
-│   ├── nginx/              Reverse-Proxy-Konfiguration
-│   └── php/php.ini         PHP-Einstellungen für den Container
+├── database/schema.sql     Datenbankschema (wird beim ersten Start eingelesen)
 ├── bin/console             Kommandozeile für Verwaltungsaufgaben
-├── public/                 Dokument-Root: der einzige öffentliche Bereich
-│   ├── *.php               Ein Controller je Seite
+├── public/                 Dokument-Root, ein Controller je Seite
 │   └── assets/             Stylesheet, Skript, QR-Code-Bibliothek
 ├── src/                    Anwendungslogik
-│   ├── Application.php     Verdrahtung aller Bausteine
-│   ├── AuthService.php     Sitzungszustand und Anmeldeablauf
-│   ├── Config.php          Konfiguration
-│   ├── Database.php        Datenbankzugriff
-│   ├── Http.php            Eingaben, Weiterleitungen, CSRF
-│   ├── Mailer.php          E-Mail-Versand
-│   ├── PasswordService.php Passwort-Reset und Bestätigungscodes
-│   ├── Security.php        Passwörter, Einmalcodes, Verschlüsselung
-│   ├── SecurityRepository.php  Datenbankzugriff der Sicherheitstabellen
-│   ├── Session.php         Sitzungsverwaltung
-│   ├── TwoFactorService.php    Zwei-Faktor-Authentifizierung
-│   ├── UserRepository.php  Datenbankzugriff der Kontotabelle
-│   ├── View.php            Rendern der Templates
-│   └── bootstrap.php       Start der Anwendung
-├── templates/              HTML-Templates (Twig)
-│   ├── *.twig              Eine Vorlage je Seite
-│   └── emails/             Vorlagen für E-Mails
-└── tests/                  Testhelfer
+│   ├── Application.php     baut alle Bausteine zusammen
+│   ├── bootstrap.php       Start für jeden Seitenaufruf
+│   ├── Web.php             Eingaben, Sitzung, CSRF, Weiterleitung, Templates
+│   ├── Auth.php            Anmeldezustand und mehrstufiger Login
+│   ├── EmailCodes.php      Codes per E-Mail (Anmeldung, Adresse bestätigen)
+│   ├── PasswordReset.php   Passwort zurücksetzen
+│   ├── TwoFactor.php       Authenticator-App einrichten und prüfen
+│   ├── Totp.php            Einmalcodes nach RFC 6238
+│   ├── Security.php        Passwörter, Verschlüsselung, Eingabeprüfung
+│   ├── RateLimit.php       Versuchsbegrenzung
+│   ├── Users.php           Tabelle users
+│   ├── Mailer.php          E-Mail-Versand über Resend
+│   ├── Config.php          .env und Umgebungsvariablen
+│   └── Database.php        PDO mit Prepared Statements
+├── templates/              Twig-Templates (HTML), E-Mail-Vorlagen in emails/
+└── tests/run.php           Tests ohne Datenbank
 ```
 
 **Die Trennung ist strikt:**
@@ -166,8 +150,8 @@ secure-login/
 | SQL-Injection | Ausschließlich Prepared Statements, `ATTR_EMULATE_PREPARES => false` |
 | Cross-Site-Scripting | Twig escapt automatisch, Ausgabe nur über Templates |
 | CSRF | Verstecktes Token (32 Zufallsbytes) in jedem Formular, zeitkonstant verglichen |
-| Brute-Force | Versuchsbegrenzung in der Datenbank: 20 Logins / 15 Min., 5 Reset-Anfragen / Std. |
-| Passwort im Klartext | bcrypt mit automatischer Prüfung auf veraltete Parameter |
+| Brute-Force | Versuchsbegrenzung in der Datenbank: 20 Logins / 15 Min., 10 Authenticator-Codes / 15 Min., 5 Reset-Anfragen / Std. |
+| Passwort im Klartext | bcrypt (`password_hash`) mit Salt im Hash |
 | Schwache Passwörter | Mindestlänge 12 Zeichen, zusätzliche Prüfung in der Registrierung |
 | Session-Hijacking | `httponly`, `samesite=Lax`, `secure` bei HTTPS, neue Sitzungs-ID nach Login |
 | Gestohlene Sitzungen | `auth_state` bindet die Sitzung an Passwort und 2FA-Geheimnis |
@@ -180,9 +164,7 @@ secure-login/
 
 ### Passwort-Hashing
 
-Passwörter werden mit bcrypt (`password_hash`) gehasht. Gespeicherte Hashes tragen das Präfix `v2:`.
-Konten aus einer älteren Version, bei denen der Browser den SHA-256-Digest gesendet hat, werden
-beim nächsten erfolgreichen Login automatisch auf das aktuelle Verfahren umgestellt.
+Passwörter werden mit bcrypt (`password_hash`) gehasht. Salt und Kostenfaktor stehen im Hash, ein Klartext-Passwort wird nie gespeichert.
 
 ### Zwei-Faktor-Authentifizierung
 
@@ -210,13 +192,13 @@ Adresse hinterlegen.
 ## Kommandozeile
 
 ```bash
-php bin/console help                             # Übersicht aller Befehle
+php bin/console                                  # Übersicht aller Befehle
 php bin/console user:list                        # Konten auflisten
 php bin/console user:create name@example.com     # Konto anlegen
-php bin/console user:email-code name@x.de on     # E-Mail-Bestätigung einschalten
+php bin/console user:email-code name@x.de on     # E-Mail-Bestätigung ein- oder ausschalten
 php bin/console user:totp-off name@example.com   # 2FA entfernen
-php bin/console schema:import                    # Schema einlesen
-php bin/console migrate                          # Migrationen ausführen
+php bin/console dev:totp-code name@example.com   # aktuellen 2FA-Code berechnen (zum Testen)
+php bin/console dev:email-code name@x.de 123456  # E-Mail-Code hinterlegen (zum Testen)
 ```
 
 Im Container gilt jeweils `docker compose exec app php bin/console …`.
@@ -224,12 +206,12 @@ Im Container gilt jeweils `docker compose exec app php bin/console …`.
 ## Tests
 
 ```bash
-composer lint                                    # Syntaxprüfung aller PHP-Dateien
-
-# Testhilfen für die manuelle Prüfung
-php tests/generate-totp-code.php name@example.com      # gültigen 2FA-Code erzeugen
-php tests/seed-verification-code.php name@x.de 123456  # E-Mail-Code hinterlegen
+composer test    # Einmalcodes (RFC-6238-Testvektor), Passwörter, Verschlüsselung, Eingabeprüfung
+composer lint    # Syntaxprüfung aller PHP-Dateien
 ```
+
+Die Tests brauchen weder Datenbank noch Docker. Den ganzen Ablauf (Registrierung, Login,
+E-Mail-Code, 2FA, Reset) prüft man am schnellsten im laufenden Stack mit den `dev:`-Befehlen oben.
 
 ## Lizenz
 

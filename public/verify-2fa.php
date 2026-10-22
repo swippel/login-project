@@ -2,37 +2,31 @@
 
 declare(strict_types=1);
 
-use SecureLogin\Application;
-use SecureLogin\AuthService;
+use SecureLogin\Auth;
 
-/** @var Application $app */
 $app = require dirname(__DIR__) . '/src/bootstrap.php';
 
-if ($app->auth->userId() !== null) {
-    $app->http->redirect('/account.php');
-}
-
-$userId = $app->auth->pendingUserId(AuthService::SESSION_TOTP_USER);
+$userId = $app->auth->pendingUserId(Auth::STEP_TOTP);
 
 if ($userId === null) {
-    $app->http->redirect('/login.php');
+    $app->web->redirect('/login.php');
 }
 
 $error = '';
 
-if ($app->http->isPost()) {
-    $app->http->requireValidCsrfToken();
+if ($app->web->isPost()) {
+    $app->web->requireCsrf();
 
-    $code = trim($app->http->input('code'));
-
-    if ($app->twoFactor->verify($userId, $code)) {
-        $app->http->redirect($app->auth->continueAfterTotp($userId));
+    if (!$app->rateLimit->allow('totp', (string) $userId, 10, 900)) {
+        $error = 'Zu viele Versuche. Bitte versuche es in 15 Minuten erneut.';
+    } elseif ($app->twoFactor->verify($userId, $app->web->input('code'))) {
+        $app->web->redirect($app->auth->afterTotp($userId));
+    } else {
+        $error = 'Der Code ist ungueltig oder wurde schon verwendet.';
     }
-
-    $error = 'Der Code ist ungueltig oder wurde schon verwendet.';
 }
 
-echo $app->view->render('verify-2fa.twig', [
+echo $app->web->render('verify-2fa.twig', [
     'title' => 'Bestaetigungscode der App',
     'error' => $error,
 ]);

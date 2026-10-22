@@ -4,255 +4,111 @@
 declare(strict_types=1);
 
 use SecureLogin\Application;
-use SecureLogin\Database;
+use SecureLogin\EmailCodes;
+use SecureLogin\Totp;
 
 require_once dirname(__DIR__) . '/vendor/autoload.php';
 
 /**
- * Kommandozeile fuer Verwaltungsaufgaben.
- *
- * Aufruf:  php bin/console <befehl> [argumente]
+ * Verwaltung auf der Kommandozeile:  php bin/console <befehl> [argumente]
  */
-$rootDirectory = dirname(__DIR__);
-$app = Application::create($rootDirectory);
-
-$command = $argv[1] ?? 'help';
-$arguments = array_slice($argv, 2);
-
 $commands = [
-    'user:list'        => 'Listet alle Konten auf.',
-    'user:create'      => 'user:create <email> [passwort] — legt ein Konto an.',
-    'user:email-code'  => 'user:email-code <email> <on|off> — Bestaetigung per E-Mail umschalten.',
-    'user:totp-off'    => 'user:totp-off <email> — entfernt die 2FA eines Kontos.',
-    'schema:import'    => 'schema:import — legt die Datenbank und alle Tabellen an.',
-    'migrate'          => 'migrate — spielt die Migrationen in database/migrations aus.',
+    'user:list' => 'Konten auflisten',
+    'user:create <email> [passwort]' => 'Konto anlegen (ohne Passwort wird eines erzeugt)',
+    'user:email-code <email> <on|off>' => 'E-Mail-Bestaetigung umschalten',
+    'user:totp-off <email>' => '2FA eines Kontos entfernen',
+    'dev:totp-code <email>' => 'Aktuellen 2FA-Code berechnen (zum Testen)',
+    'dev:email-code <email> [code]' => 'E-Mail-Code fuer die Anmeldung hinterlegen, Standard 123456 (zum Testen)',
 ];
 
-if ($command === 'help' || $command === '--help' || $command === '-h') {
-    echo "Secure Login — Kommandozeile\n\n";
-    echo "Verfuegbare Befehle:\n";
+[, $command, $email, $extra] = $argv + [null, 'help', null, null];
 
-    foreach ($commands as $name => $description) {
-        printf("  %-18s %s\n", $name, $description);
+if (!in_array($command, array_map(fn ($c) => explode(' ', $c)[0], array_keys($commands)), true)) {
+    echo "Befehle:\n";
+    foreach ($commands as $usage => $description) {
+        printf("  %-34s %s\n", $usage, $description);
     }
-
-    exit(0);
+    exit($command === 'help' ? 0 : 1);
 }
 
-if (!isset($commands[$command])) {
-    fwrite(STDERR, sprintf("Unbekannter Befehl: %s\n", $command));
-    exit(1);
-}
+$app = new Application(dirname(__DIR__));
 
-try {
-    exit(match ($command) {
-        'user:list'       => commandUserList($app),
-        'user:create'     => commandUserCreate($app, $arguments),
-        'user:email-code' => commandUserEmailCode($app, $arguments),
-        'user:totp-off'   => commandUserTotpOff($app, $arguments),
-        'schema:import'   => commandSchemaImport($rootDirectory),
-        'migrate'         => commandMigrate($rootDirectory),
-        default           => 1,
-    });
-} catch (Throwable $exception) {
-    fwrite(STDERR, 'Fehler: ' . $exception->getMessage() . PHP_EOL);
-    exit(1);
-}
-
-/**
- * @param list<string> $arguments
- */
-function commandUserList(Application $app): int
-{
-    $users = $app->users->all();
-
-    if ($users === []) {
-        echo "Keine Konten vorhanden.\n";
-
-        return 0;
-    }
-
-    printf("%-4s %-34s %-8s %-8s %s\n", 'ID', 'E-MAIL', 'MAILCODE', '2FA', 'LETZTER LOGIN');
-
-    foreach ($users as $user) {
+if ($command === 'user:list') {
+    foreach ($app->users->all() as $user) {
         printf(
-            "%-4d %-34s %-8s %-8s %s\n",
+            "%-4d %-32s mailcode:%-4s 2fa:%-4s %s\n",
             $user['id'],
             $user['email'],
-            (int) $user['email_code_login'] === 1 ? 'ja' : 'nein',
+            $user['email_code_login'] ? 'ja' : 'nein',
             $app->twoFactor->isEnabled((int) $user['id']) ? 'ja' : 'nein',
             $user['last_login'] ?? '-',
         );
     }
-
-    return 0;
+    exit(0);
 }
 
-/**
- * @param list<string> $arguments
- */
-function commandUserCreate(Application $app, array $arguments): int
-{
-    $email = mb_strtolower(trim($arguments[0] ?? ''));
-    $password = $arguments[1] ?? '';
+$cleanEmail = $app->security->cleanEmail((string) $email);
 
-    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        fwrite(STDERR, "Bitte eine gueltige E-Mail-Adresse angeben.\n");
-
-        return 1;
-    }
-
-    if ($password === '') {
-        $password = bin2hex(random_bytes(12));
-        echo "Generiertes Passwort: $password\n";
-    }
-
-    if (strlen($password) < 12) {
-        fwrite(STDERR, "Das Passwort muss mindestens 12 Zeichen lang sein.\n");
-
-        return 1;
-    }
-
-    if ($app->users->exists($email)) {
-        fwrite(STDERR, "Diese E-Mail-Adresse ist bereits registriert.\n");
-
-        return 1;
-    }
-
-    $userId = $app->users->create($email, $app->security->hashPassword($password));
-
-    echo sprintf("Konto angelegt: %s (ID %d)\n", $email, $userId);
-
-    return 0;
+if ($cleanEmail === null) {
+    fwrite(STDERR, "Bitte eine gueltige E-Mail-Adresse angeben.\n");
+    exit(1);
 }
 
-/**
- * @param list<string> $arguments
- */
-function commandUserEmailCode(Application $app, array $arguments): int
-{
-    $email = mb_strtolower(trim($arguments[0] ?? ''));
-    $state = strtolower($arguments[1] ?? '');
+$user = $app->users->findByEmail($cleanEmail);
 
-    $user = $app->users->findByEmail($email);
+if ($command === 'user:create') {
+    $password = $extra ?? bin2hex(random_bytes(12));
 
-    if ($user === null) {
-        fwrite(STDERR, "Konto nicht gefunden.\n");
-
-        return 1;
+    if ($user !== null || ($error = $app->security->passwordError($password, $password)) !== null) {
+        fwrite(STDERR, ($user !== null ? 'Diese E-Mail-Adresse ist bereits registriert.' : $error) . "\n");
+        exit(1);
     }
 
-    if (!in_array($state, ['on', 'off'], true)) {
-        fwrite(STDERR, "Zweiter Wert muss 'on' oder 'off' sein.\n");
-
-        return 1;
-    }
-
-    $enabled = $state === 'on';
-    $app->users->setEmailCodeLogin((int) $user['id'], $enabled);
-
-    echo sprintf("Bestaetigung per E-Mail fuer %s: %s\n", $email, $enabled ? 'aktiv' : 'inaktiv');
-
-    return 0;
+    $id = $app->users->create($cleanEmail, $app->security->hashPassword($password));
+    echo "Konto angelegt: $cleanEmail (ID $id)", $extra === null ? ", Passwort: $password" : '', "\n";
+    exit(0);
 }
 
-/**
- * @param list<string> $arguments
- */
-function commandUserTotpOff(Application $app, array $arguments): int
-{
-    $email = mb_strtolower(trim($arguments[0] ?? ''));
-    $user = $app->users->findByEmail($email);
-
-    if ($user === null) {
-        fwrite(STDERR, "Konto nicht gefunden.\n");
-
-        return 1;
-    }
-
-    $app->securityRepository->deleteTotp((int) $user['id']);
-
-    echo sprintf("2FA fuer %s entfernt.\n", $email);
-
-    return 0;
+if ($user === null) {
+    fwrite(STDERR, "Konto nicht gefunden.\n");
+    exit(1);
 }
 
-function commandSchemaImport(string $rootDirectory): int
-{
-    $path = $rootDirectory . '/database/schema.sql';
+$userId = (int) $user['id'];
 
-    if (!is_file($path)) {
-        fwrite(STDERR, 'Schema-Datei nicht gefunden: ' . $path . "\n");
-
-        return 1;
-    }
-
-    $sql = file_get_contents($path);
-
-    if ($sql === false) {
-        fwrite(STDERR, "Schema-Datei konnte nicht gelesen werden.\n");
-
-        return 1;
-    }
-
-    $pdo = new PDO(
-        sprintf(
-            'mysql:host=%s;charset=utf8mb4',
-            getenv('DB_HOST') ?: '127.0.0.1',
-        ),
-        getenv('DB_USER') ?: 'root',
-        getenv('DB_PASSWORD') ?: '',
-    );
-
-    foreach (array_filter(array_map('trim', explode(';', $sql))) as $statement) {
-        if ($statement === '' || str_starts_with($statement, '--')) {
-            continue;
+switch ($command) {
+    case 'user:email-code':
+        if (!in_array($extra, ['on', 'off'], true)) {
+            fwrite(STDERR, "Zweiter Wert muss 'on' oder 'off' sein.\n");
+            exit(1);
         }
+        $app->users->setEmailCode($userId, $extra === 'on');
+        echo "E-Mail-Bestaetigung fuer $cleanEmail: ", $extra === 'on' ? 'an' : 'aus', "\n";
+        break;
 
-        $pdo->exec($statement);
-    }
+    case 'user:totp-off':
+        $app->database->execute('DELETE FROM user_totp WHERE user_id = ?', [$userId]);
+        echo "2FA fuer $cleanEmail entfernt.\n";
+        break;
 
-    echo "Schema eingelesen.\n";
-
-    return 0;
-}
-
-function commandMigrate(string $rootDirectory): int
-{
-    $directory = $rootDirectory . '/database/migrations';
-
-    if (!is_dir($directory)) {
-        fwrite(STDERR, "Keine Migrationen gefunden.\n");
-
-        return 1;
-    }
-
-    $pdo = new PDO(
-        sprintf(
-            'mysql:host=%s;dbname=%s;charset=utf8mb4',
-            getenv('DB_HOST') ?: '127.0.0.1',
-            getenv('DB_NAME') ?: 'auth_system',
-        ),
-        getenv('DB_USER') ?: 'root',
-        getenv('DB_PASSWORD') ?: '',
-    );
-
-    $files = glob($directory . '/*.sql') ?: [];
-    sort($files);
-
-    foreach ($files as $file) {
-        $sql = (string) file_get_contents($file);
-
-        foreach (array_filter(array_map('trim', explode(';', $sql))) as $statement) {
-            if ($statement === '' || str_starts_with($statement, '--')) {
-                continue;
-            }
-
-            $pdo->exec($statement);
+    case 'dev:totp-code':
+        $row = $app->database->one('SELECT secret_nonce, secret_ciphertext FROM user_totp WHERE user_id = ?', [$userId]);
+        if ($row === null) {
+            fwrite(STDERR, "Fuer dieses Konto ist keine 2FA eingerichtet.\n");
+            exit(1);
         }
+        $secret = $app->security->decrypt($row['secret_nonce'], $row['secret_ciphertext']);
+        echo Totp::code($secret, intdiv(time(), 30)), "\n";
+        break;
 
-        echo 'Migration ausgefuehrt: ' . basename($file) . "\n";
-    }
-
-    return 0;
+    case 'dev:email-code':
+        $code = $extra ?? '123456';
+        $app->emailCodes->clear($userId, EmailCodes::LOGIN);
+        $app->database->execute(
+            'INSERT INTO email_verifications (user_id, code_hash, purpose, expires_at)
+             VALUES (?, ?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 10 MINUTE))',
+            [$userId, $app->security->hashCode($code), EmailCodes::LOGIN],
+        );
+        echo "Code $code fuer $cleanEmail hinterlegt.\n";
+        break;
 }

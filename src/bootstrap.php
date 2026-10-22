@@ -7,22 +7,11 @@ use SecureLogin\Application;
 require_once dirname(__DIR__) . '/vendor/autoload.php';
 
 /**
- * Startet die Anwendung fuer einen HTTP-Aufruf.
- *
- * Aufrufende holen sich hierueber alle Bausteine:
+ * Startet die Anwendung für einen HTTP-Aufruf.
  *
  *     $app = require dirname(__DIR__) . '/src/bootstrap.php';
- *     $app->auth->userId();
  */
-$app = Application::create(dirname(__DIR__));
-
-$app->session->start($app->http->isHttps());
-$app->http->sendSecurityHeaders();
-
-$app->view->addGlobal('csrf_token', $app->http->csrfToken());
-$app->view->addGlobal('flash', [
-    'success' => $app->session->takeFlash('success'),
-    'error' => $app->session->takeFlash('error'),
-]);
+$app = new Application(dirname(__DIR__));
+$app->web->start();
 
 return $app;

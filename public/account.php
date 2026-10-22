@@ -2,43 +2,40 @@
 
 declare(strict_types=1);
 
-use SecureLogin\Application;
+use SecureLogin\EmailCodes;
 
-/** @var Application $app */
 $app = require dirname(__DIR__) . '/src/bootstrap.php';
 
-$userId = $app->auth->userId();
-
-if ($userId === null) {
-    $app->http->redirect('/login.php');
-}
-
-$user = $app->users->findById($userId);
+$user = $app->auth->user();
 
 if ($user === null) {
-    $app->auth->logout();
-    $app->session->destroy();
-    $app->http->redirect('/login.php');
+    $app->web->redirect('/login.php');
 }
 
+$userId = (int) $user['id'];
 $error = '';
 $success = '';
 
-if ($app->http->isPost()) {
-    $app->http->requireValidCsrfToken();
+if ($app->web->isPost()) {
+    $app->web->requireCsrf();
 
-    switch ($app->http->input('action')) {
+    $code = $app->web->input('code');
+
+    switch ($app->web->input('action')) {
         case 'email_code_enable':
-            $sent = $app->passwordService->requestAddressConfirmation($user);
-
-            $success = $sent
-                ? 'Wir haben dir einen Code geschickt. Bitte gib ihn unten ein.'
-                : 'Der Code konnte nicht gesendet werden. Bitte in 60 Sekunden erneut versuchen.';
+            // Erst die Adresse mit einem Code bestätigen, damit niemand eine fremde hinterlegt.
+            if ($app->emailCodes->send($userId, $user['email'], EmailCodes::ADDRESS)) {
+                $success = 'Wir haben dir einen Code geschickt. Bitte gib ihn unten ein.';
+            } else {
+                $error = 'Der Code konnte nicht gesendet werden. Bitte in 60 Sekunden erneut versuchen.';
+            }
 
             break;
 
         case 'email_code_confirm':
-            if ($app->passwordService->confirmAddress($userId, trim($app->http->input('code')))) {
+            if ($app->emailCodes->check($userId, EmailCodes::ADDRESS, $code)) {
+                $app->users->setEmailCode($userId, true);
+                $user['email_code_login'] = 1;
                 $success = 'Die Bestaetigung per E-Mail ist aktiviert.';
             } else {
                 $error = 'Der Code ist ungueltig oder abgelaufen.';
@@ -47,19 +44,23 @@ if ($app->http->isPost()) {
             break;
 
         case 'email_code_disable':
-            $app->passwordService->disableEmailCode($userId);
+            $app->users->setEmailCode($userId, false);
+            $app->emailCodes->clear($userId, EmailCodes::LOGIN);
+            $user['email_code_login'] = 0;
             $success = 'Die Bestaetigung per E-Mail ist deaktiviert.';
 
             break;
 
         case 'totp_start':
             $app->twoFactor->beginSetup();
-            $app->http->redirect('/account.php');
+            $app->web->redirect('/account.php');
 
-            break;
+        case 'totp_cancel':
+            $app->twoFactor->cancelSetup();
+            $app->web->redirect('/account.php');
 
         case 'totp_enable':
-            if ($app->twoFactor->completeSetup($userId, trim($app->http->input('code')))) {
+            if ($app->twoFactor->completeSetup($userId, $code)) {
                 $app->auth->refreshState($userId);
                 $success = 'Zwei-Faktor-Authentifizierung ist aktiviert.';
             } else {
@@ -68,17 +69,8 @@ if ($app->http->isPost()) {
 
             break;
 
-        case 'totp_cancel':
-            $app->twoFactor->cancelSetup();
-            $app->http->redirect('/account.php');
-
-            break;
-
         case 'totp_disable':
-            $password = $app->http->input('password');
-            $code = trim($app->http->input('code'));
-
-            if ($app->twoFactor->disable($user, $password, $code)) {
+            if ($app->twoFactor->disable($user, $app->web->input('password'), $code)) {
                 $app->auth->refreshState($userId);
                 $success = 'Zwei-Faktor-Authentifizierung ist deaktiviert.';
             } else {
@@ -93,18 +85,15 @@ if ($app->http->isPost()) {
 }
 
 $setupSecret = $app->twoFactor->setupSecret();
-$setupUri = $setupSecret === null
-    ? null
-    : $app->twoFactor->setupUri($setupSecret, (string) $user['email']);
 
-echo $app->view->render('account.twig', [
+echo $app->web->render('account.twig', [
     'title' => 'Dein Konto',
-    'email' => (string) $user['email'],
+    'email' => $user['email'],
     'error' => $error,
     'success' => $success,
-    'emailCodeEnabled' => (int) $user['email_code_login'] === 1,
-    'emailCodePending' => $app->passwordService->isAddressConfirmationPending(),
+    'emailCodeEnabled' => (bool) $user['email_code_login'],
+    'emailCodePending' => $app->emailCodes->isAddressPending($userId),
     'twoFactorEnabled' => $app->twoFactor->isEnabled($userId),
     'setupSecret' => $setupSecret,
-    'setupUri' => $setupUri,
+    'setupUri' => $setupSecret === null ? null : $app->twoFactor->setupUri($setupSecret, $user['email']),
 ]);
