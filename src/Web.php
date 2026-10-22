@@ -4,23 +4,17 @@ declare(strict_types=1);
 
 namespace SecureLogin;
 
-use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
-
 /**
  * Alles rund um die HTTP-Anfrage: Eingaben, Sitzung, CSRF-Schutz,
  * Weiterleitungen und das Rendern der Templates.
  */
 final class Web
 {
-    private readonly Environment $twig;
+    private readonly string $templates;
 
     public function __construct(string $root)
     {
-        $this->twig = new Environment(new FilesystemLoader($root . '/templates'), [
-            'cache' => $root . '/var/cache/twig',
-            'auto_reload' => true,
-        ]);
+        $this->templates = $root . '/templates';
     }
 
     /** Startet Sitzung und Sicherheits-Header, wird einmal pro Anfrage aufgerufen. */
@@ -37,8 +31,6 @@ final class Web
         header('Referrer-Policy: no-referrer');
         header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; "
             . "img-src 'self' data:; base-uri 'none'; form-action 'self'");
-
-        $this->twig->addGlobal('csrf_token', $this->csrfToken());
     }
 
     /* Eingaben */
@@ -69,17 +61,42 @@ final class Web
         exit;
     }
 
-    /** @param array<string, mixed> $data */
-    public function render(string $template, array $data = []): string
+    /**
+     * Rendert templates/<name>.php. Seiten werden in templates/layout.php eingesetzt,
+     * E-Mail-Vorlagen (emails/...) nicht.
+     *
+     * @param array<string, mixed> $data
+     */
+    public function render(string $name, array $data = []): string
     {
-        if (str_starts_with($template, 'emails/')) {
-            return $this->twig->render($template, $data);
+        $data['csrf_token'] = $this->csrfToken();
+        $content = $this->include($name, $data);
+
+        if (str_starts_with($name, 'emails/')) {
+            return $content;
         }
 
         // Erst beim Rendern lesen, damit auch Meldungen aus dem aktuellen Aufruf erscheinen.
         $flash = ['success' => $this->takeFlash('success'), 'error' => $this->takeFlash('error')];
 
-        return $this->twig->render($template, $data + ['flash' => $flash]);
+        return $this->include('layout', $data + ['content' => $content, 'flash' => $flash]);
+    }
+
+    /**
+     * In den Templates escaped $e() jede Ausgabe gegen Cross-Site-Scripting:
+     * <?= $e($wert) ?>
+     *
+     * @param array<string, mixed> $vars
+     */
+    private function include(string $name, array $vars): string
+    {
+        $e = static fn (mixed $value): string => htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+
+        extract($vars, EXTR_SKIP);
+        ob_start();
+        require $this->templates . '/' . $name . '.php';
+
+        return (string) ob_get_clean();
     }
 
     /* Sitzung */

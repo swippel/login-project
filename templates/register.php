@@ -1,0 +1,22 @@
+<p class="intro">Erstelle dein Konto mit deiner E-Mail-Adresse.</p>
+
+<form method="post">
+    <input type="hidden" name="csrf_token" value="<?= $e($csrf_token) ?>">
+
+    <label for="email">E-Mail</label>
+    <input id="email" name="email" type="email" autocomplete="email"
+           value="<?= $e($email) ?>" required>
+
+    <label for="password">Passwort</label>
+    <input id="password" name="password" type="password" autocomplete="new-password"
+           minlength="12" required>
+    <p class="hint">Mindestens 12 Zeichen.</p>
+
+    <label for="confirm_password">Passwort wiederholen</label>
+    <input id="confirm_password" name="confirm_password" type="password"
+           autocomplete="new-password" required>
+
+    <button type="submit">Konto erstellen</button>
+</form>
+
+<p class="footer-link">Schon registriert? <a href="/login.php">Zum Login</a></p>

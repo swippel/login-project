@@ -10,8 +10,7 @@
         "ext-pdo": "*",
         "ext-pdo_mysql": "*",
         "ext-sodium": "*",
-        "phpmailer/phpmailer": "^6.9",
-        "twig/twig": "^3.21"
+        "phpmailer/phpmailer": "^6.9"
     },
     "autoload": {
         "psr-4": {
@@ -24,7 +23,7 @@
     },
     "scripts": {
         "serve": "php -S 127.0.0.1:8081 -t public",
-        "lint": "find src public bin tests -name '*.php' -print0 | xargs -0 -n1 php -l",
+        "lint": "find src public tests -name '*.php' -print0 | xargs -0 -n1 php -l",
         "test": "php tests/run.php"
     }
 }

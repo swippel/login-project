@@ -26,7 +26,7 @@ if ($app->web->isPost()) {
     }
 }
 
-echo $app->web->render('verify-2fa.twig', [
+echo $app->web->render('verify-2fa', [
     'title' => 'Bestaetigungscode der App',
     'error' => $error,
 ]);

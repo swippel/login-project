@@ -86,7 +86,7 @@ if ($app->web->isPost()) {
 
 $setupSecret = $app->twoFactor->setupSecret();
 
-echo $app->web->render('account.twig', [
+echo $app->web->render('account', [
     'title' => 'Dein Konto',
     'email' => $user['email'],
     'error' => $error,

@@ -22,7 +22,7 @@ if ($app->web->isPost()) {
     }
 }
 
-echo $app->web->render('forgot-password.twig', [
+echo $app->web->render('forgot-password', [
     'title' => 'Passwort vergessen?',
     'error' => $error,
     'sent' => $sent,

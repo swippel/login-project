@@ -1,0 +1,18 @@
+<p class="intro">Melde dich mit deinem Konto an.</p>
+
+<form method="post">
+    <input type="hidden" name="csrf_token" value="<?= $e($csrf_token) ?>">
+
+    <label for="email">E-Mail</label>
+    <input id="email" name="email" type="email" autocomplete="username"
+           value="<?= $e($email) ?>" required>
+
+    <label for="password">Passwort</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+
+    <p class="right-link"><a href="/forgot-password.php">Passwort vergessen?</a></p>
+
+    <button type="submit">Einloggen</button>
+</form>
+
+<p class="footer-link">Noch kein Konto? <a href="/register.php">Registrieren</a></p>

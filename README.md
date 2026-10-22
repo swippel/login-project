@@ -16,7 +16,6 @@ gegen Cross-Site-Request-Forgery geschützt, und wiederholte Anmeldeversuche wer
 - [Projektstruktur](#projektstruktur)
 - [Sicherheitskonzept](#sicherheitskonzept)
 - [Die drei Anmeldevarianten](#die-drei-anmeldevarianten)
-- [Kommandozeile](#kommandozeile)
 - [Tests](#tests)
 - [Lizenz](#lizenz)
 
@@ -50,11 +49,7 @@ open http://127.0.0.1:8081
 ```
 
 Beim ersten Start legt der Datenbank-Container das Schema automatisch an. Ein Konto lässt sich
-danach über **„Konto erstellen"** anlegen – oder per Kommandozeile:
-
-```bash
-docker compose exec app php bin/console user:create name@example.com
-```
+danach über **„Konto erstellen"** anlegen.
 
 **Weitere Befehle:**
 
@@ -125,7 +120,6 @@ secure-login/
 ├── docker-compose.yml      Dienste: app (Apache + PHP), db (MariaDB)
 ├── Dockerfile              PHP-Image mit Apache
 ├── database/schema.sql     Datenbankschema (wird beim ersten Start eingelesen)
-├── bin/console             Kommandozeile für Verwaltungsaufgaben
 ├── public/                 Dokument-Root, ein Controller je Seite
 │   └── assets/             Stylesheet, Skript, QR-Code-Bibliothek
 ├── src/                    Anwendungslogik
@@ -143,14 +137,14 @@ secure-login/
 │   ├── Mailer.php          E-Mail-Versand über SMTP
 │   ├── Config.php          .env und Umgebungsvariablen
 │   └── Database.php        PDO mit Prepared Statements
-├── templates/              Twig-Templates (HTML), E-Mail-Vorlagen in emails/
+├── templates/              HTML-Seiten als PHP-Dateien, E-Mail-Vorlagen in emails/
 └── tests/run.php           Tests ohne Datenbank
 ```
 
 **Die Trennung ist strikt:**
 
 - **PHP** enthält ausschließlich Logik. Jede Datei hat genau eine Aufgabe.
-- **HTML** liegt in `templates/` als Twig-Templates ohne PHP-Code.
+- **HTML** liegt in `templates/`. Dort steht nur HTML mit `<?= $e($wert) ?>` für Ausgaben und einfachen `if`-Blöcken.
 - **CSS** liegt in einer einzigen Datei unter `public/assets/style.css`.
 - **Nur `public/`** ist über den Web erreichbar. Konfiguration (`src/`, `.env`) sind geschützt.
 
@@ -159,7 +153,7 @@ secure-login/
 | Angriffsart | Gegenmaßnahme |
 |---|---|
 | SQL-Injection | Ausschließlich Prepared Statements, `ATTR_EMULATE_PREPARES => false` |
-| Cross-Site-Scripting | Twig escapt automatisch, Ausgabe nur über Templates |
+| Cross-Site-Scripting | Jede Ausgabe in den Templates läuft durch `$e()` (`htmlspecialchars`) |
 | CSRF | Verstecktes Token (32 Zufallsbytes) in jedem Formular, zeitkonstant verglichen |
 | Brute-Force | Versuchsbegrenzung in der Datenbank: 20 Logins / 15 Min., 10 Authenticator-Codes / 15 Min., 5 Reset-Anfragen / Std. |
 | Passwort im Klartext | bcrypt (`password_hash`) mit Salt im Hash |
@@ -200,20 +194,6 @@ Die Varianten 2 und 3 lassen sich gleichzeitig einschalten. Wird die Variante 2 
 aktiviert, wird die Adresse vorher durch einen Code bestätigt – so kann niemand eine fremde
 Adresse hinterlegen.
 
-## Kommandozeile
-
-```bash
-php bin/console                                  # Übersicht aller Befehle
-php bin/console user:list                        # Konten auflisten
-php bin/console user:create name@example.com     # Konto anlegen
-php bin/console user:email-code name@x.de on     # E-Mail-Bestätigung ein- oder ausschalten
-php bin/console user:totp-off name@example.com   # 2FA entfernen
-php bin/console dev:totp-code name@example.com   # aktuellen 2FA-Code berechnen (zum Testen)
-php bin/console dev:email-code name@x.de 123456  # E-Mail-Code hinterlegen (zum Testen)
-```
-
-Im Container gilt jeweils `docker compose exec app php bin/console …`.
-
 ## Tests
 
 ```bash
@@ -221,8 +201,7 @@ composer test    # Einmalcodes (RFC-6238-Testvektor), Passwörter, Verschlüssel
 composer lint    # Syntaxprüfung aller PHP-Dateien
 ```
 
-Die Tests brauchen weder Datenbank noch Docker. Den ganzen Ablauf (Registrierung, Login,
-E-Mail-Code, 2FA, Reset) prüft man am schnellsten im laufenden Stack mit den `dev:`-Befehlen oben.
+Die Tests brauchen weder Datenbank noch Docker. Den ganzen Ablauf prüft man im laufenden Stack im Browser.
 
 ## Lizenz
 

@@ -31,7 +31,7 @@ final class Mailer
         return $this->send(
             $to,
             'Dein Bestaetigungscode',
-            'emails/verification-code.twig',
+            'emails/verification-code',
             ['code' => $code, 'minutes' => $minutes],
             "Dein Bestaetigungscode lautet: $code\nDer Code ist $minutes Minuten gueltig.",
         );
@@ -42,7 +42,7 @@ final class Mailer
         return $this->send(
             $to,
             'Passwort zuruecksetzen',
-            'emails/password-reset.twig',
+            'emails/password-reset',
             ['url' => $url, 'minutes' => $minutes],
             "Passwort zuruecksetzen: $url\nDer Link ist $minutes Minuten gueltig und kann nur einmal verwendet werden.",
         );

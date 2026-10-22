@@ -16,8 +16,5 @@ COPY --from=vendor /app/vendor ./vendor
 COPY src/ ./src/
 COPY templates/ ./templates/
 COPY public/ ./public/
-COPY bin/ ./bin/
-
-RUN mkdir -p var/cache/twig && chown -R www-data:www-data var
 
 EXPOSE 80

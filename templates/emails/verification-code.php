@@ -10,10 +10,10 @@
     <p>Bitte gib folgenden Code ein, um deine Anmeldung abzuschliessen:</p>
 
     <p style="font-size: 30px; letter-spacing: 6px; font-weight: bold; margin: 24px 0;">
-        {{ code }}
+        <?= $e($code) ?>
     </p>
 
-    <p>Der Code ist {{ minutes }} Minuten gueltig und kann nur einmal verwendet werden.</p>
+    <p>Der Code ist <?= $e($minutes) ?> Minuten gueltig und kann nur einmal verwendet werden.</p>
 
     <p style="color: #6b7391; font-size: 13px;">
         Falls du diese Mail nicht angefordert hast, kannst du sie ignorieren.

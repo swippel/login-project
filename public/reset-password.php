@@ -26,7 +26,7 @@ if ($app->web->isPost()) {
     }
 }
 
-echo $app->web->render('reset-password.twig', [
+echo $app->web->render('reset-password', [
     'title' => 'Neues Passwort',
     'error' => $error,
     'token' => $token,

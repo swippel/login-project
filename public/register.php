@@ -37,7 +37,7 @@ if ($app->web->isPost()) {
     }
 }
 
-echo $app->web->render('register.twig', [
+echo $app->web->render('register', [
     'title' => 'Konto erstellen',
     'error' => $error,
     'email' => $email,

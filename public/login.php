@@ -38,7 +38,7 @@ if ($app->web->isPost()) {
     }
 }
 
-echo $app->web->render('login.twig', [
+echo $app->web->render('login', [
     'title' => 'Willkommen zurueck',
     'error' => $error,
     'email' => $email,

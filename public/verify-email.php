@@ -35,7 +35,7 @@ if ($app->web->isPost()) {
     }
 }
 
-echo $app->web->render('verify-email.twig', [
+echo $app->web->render('verify-email', [
     'title' => 'Bestaetigungscode aus dem Postfach',
     'error' => $error,
     'resent' => $resent,
